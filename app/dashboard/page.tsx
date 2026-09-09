@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Card, GhostButton, PrimaryButton, SectionTitle } from "@/components/ui";
-import { formatCompact } from "@/lib/format";
+import { DataSourceBanner } from "@/components/AccountShell";
+import { formatCompact, formatPercent } from "@/lib/format";
 import type { AccountSummary } from "@/lib/mock/types";
 
 const SUGGESTIONS = [
@@ -21,6 +22,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<"live" | "mock" | undefined>(undefined);
+  const [searchWarning, setSearchWarning] = useState<string | null>(null);
 
   const [directHandle, setDirectHandle] = useState("");
   const [directNiche, setDirectNiche] = useState("");
@@ -50,9 +53,12 @@ export default function DashboardPage() {
       if (!res.ok || !data.ok) {
         setError(data.error ?? "Не удалось выполнить поиск");
         setAccounts(null);
+        setDataSource(undefined);
         return;
       }
       setAccounts(data.accounts);
+      setDataSource(data.dataSource);
+      setSearchWarning(data.warning ?? null);
     } catch {
       setError("Ошибка сети, попробуйте ещё раз");
     } finally {
@@ -164,6 +170,7 @@ export default function DashboardPage() {
             <h3 className="font-display text-lg font-bold">Топ аккаунтов по нише «{niche}»{location && ` · ${location}`}</h3>
             <Badge tone="neutral">{accounts.length} аккаунтов</Badge>
           </div>
+          <DataSourceBanner dataSource={dataSource} warning={searchWarning} />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {accounts.map((a) => (
               <Card key={a.username} className="flex flex-col">
@@ -193,7 +200,7 @@ export default function DashboardPage() {
                     <div className="text-[10px] text-white/40">публикаций</div>
                   </div>
                   <div>
-                    <div className="font-display text-sm font-bold text-mint-400">{a.avgEngagementRate}%</div>
+                    <div className="font-display text-sm font-bold text-mint-400">{formatPercent(a.avgEngagementRate)}</div>
                     <div className="text-[10px] text-white/40">вовлечённость</div>
                   </div>
                 </div>

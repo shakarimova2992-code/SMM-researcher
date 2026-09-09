@@ -12,7 +12,7 @@ const CONTENT_ACTOR = "apify~instagram-scraper";
 type RawProfile = Record<string, any>;
 type RawItem = Record<string, any>;
 
-function firstDefined<T>(...values: (T | undefined | null)[]): T | undefined {
+export function firstDefined<T>(...values: (T | undefined | null)[]): T | undefined {
   for (const v of values) if (v !== undefined && v !== null) return v;
   return undefined;
 }
@@ -56,7 +56,7 @@ function guessFormat(raw: RawItem, type: "post" | "reel"): string {
 }
 
 const HOOK_EMOJIS = ["🔥", "✨", "💡", "📈", "🎯", "💬", "🎬", "🏆"];
-const GRADIENTS: [string, string][] = [
+export const GRADIENTS: [string, string][] = [
   ["#8226ff", "#ff3d7f"], ["#ff5f6d", "#ffb703"], ["#3df2c0", "#8226ff"], ["#ff8a5c", "#8226ff"],
   ["#ffd166", "#ff3d7f"], ["#6d0fe0", "#3df2c0"], ["#ff3d7f", "#ffb703"], ["#9750ff", "#ff8a5c"],
 ];
