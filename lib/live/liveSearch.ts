@@ -1,6 +1,6 @@
 import { runApifyActor } from "./apify";
 import { detectNiche } from "@/lib/mock/niches";
-import { translit } from "@/lib/mock/translit";
+import { translit, translitLoose } from "@/lib/mock/translit";
 import { mulberry32, hashString, pick } from "@/lib/mock/rng";
 import { firstDefined, GRADIENTS } from "./liveEngine";
 import type { AccountSummary } from "@/lib/mock/types";
@@ -8,13 +8,16 @@ import type { AccountSummary } from "@/lib/mock/types";
 // Реальный поиск топ-аккаунтов по нише+городу.
 //
 // ВАЖНО: у Instagram нет официального открытого поиска "по геолокации" —
-// поэтому здесь это эмулируется через поиск постов по нишевым хэштегам
-// (в т.ч. хэштег+город слитно, как реально пишут в постах, например
-// #маникюрусткаменогорск), сбор уникальных авторов из найденных постов,
-// и затем получение их профилей (подписчики и т.д.) одним пакетным
-// вызовом. Это может не покрыть все реальные топ-аккаунты города — это
-// приближение, а не точный гарантированный поиск, но данные (подписчики,
-// био, посты) там, где они найдены — настоящие, не выдуманные.
+// поэтому здесь это делается в два шага:
+//  1) discovery — поиск постов по нишевым хэштегам (в т.ч. хэштег+город слитно,
+//     как реально пишут в постах, например #маникюрусткаменогорск), сбор
+//     уникальных авторов найденных постов;
+//  2) verification — у каждого найденного автора берём настоящий профиль
+//     (шапка бизнес-аккаунта/адрес + текст био) и проверяем, упоминается ли
+//     там сам город. Аккаунты с подтверждённым городом идут в выдаче выше
+//     неподтверждённых — это гораздо надёжнее одних только хэштегов.
+// Это по-прежнему приближение, а не гарантированный полный охват города, но
+// данные (подписчики, био, посты) там, где они найдены — настоящие.
 //
 // Как и в liveEngine.ts — поля ответа Apify не проверены живым вызовом
 // из-за сетевых ограничений песочницы, где это писалось. Любая ошибка
@@ -35,9 +38,41 @@ function buildHashtagCandidates(niche: ReturnType<typeof detectNiche>, location:
   return [...withCity, ...base];
 }
 
+// Токены для проверки города по тексту профиля: сама фраза как есть (кириллица)
+// и её транслитерация (на случай, если профиль/адрес указан латиницей). Плюс
+// укороченная "основа" слова — чтобы пережить падежные окончания в би́о
+// ("...в Усть-Каменогорске", "Ust-Kamenogorske" и т.п.).
+function buildCityMatchTokens(location: string): string[] {
+  const trimmed = location.trim().toLowerCase();
+  if (!trimmed) return [];
+  const lat = translitLoose(trimmed);
+  const stem = (s: string) => (s.length > 6 ? s.slice(0, s.length - 2) : s);
+  return Array.from(new Set([trimmed, stem(trimmed), lat, stem(lat)])).filter((t) => t.length >= 3);
+}
+
+function profileMentionsCity(profile: RawProfile, cityTokens: string[]): boolean {
+  if (cityTokens.length === 0) return false;
+  const fields = [
+    firstDefined<string>(profile.biography, profile.bio),
+    firstDefined<string>(
+      profile.businessAddress,
+      profile.address,
+      profile.city,
+      profile.businessAddressJson?.city_name,
+      profile.businessAddressJson?.street_address
+    ),
+  ].filter(Boolean) as string[];
+  if (fields.length === 0) return false;
+
+  const haystackCyr = fields.join(" ").toLowerCase();
+  const haystackLat = translitLoose(haystackCyr);
+  return cityTokens.some((t) => haystackCyr.includes(t) || haystackLat.includes(t));
+}
+
 export async function searchLiveAccounts(nicheInput: string, location: string, count = 12): Promise<AccountSummary[] | null> {
   const niche = detectNiche(nicheInput);
   const candidates = buildHashtagCandidates(niche, location);
+  const cityTokens = buildCityMatchTokens(location);
 
   const owners = new Map<string, RawItem>(); // username -> один найденный пост (для оценки ER)
 
@@ -89,6 +124,7 @@ export async function searchLiveAccounts(nicheInput: string, location: string, c
           : NaN; // недостаточно данных для честной оценки — не выдумываем число
 
       const decorRand = mulberry32(hashString(`live-search-decor|${username}`));
+      const locationVerified = cityTokens.length > 0 ? profileMentionsCity(p, cityTokens) : undefined;
 
       return {
         username,
@@ -102,12 +138,21 @@ export async function searchLiveAccounts(nicheInput: string, location: string, c
         bio: (firstDefined<string>(p.biography, p.bio) ?? "").trim() || `${niche.emoji} ${niche.label}`,
         gradient: pick(decorRand, GRADIENTS),
         rank: 0, // проставим после сортировки
+        locationVerified,
       };
     })
     .filter((a): a is AccountSummary => a !== null);
 
   if (accounts.length === 0) return null;
 
-  accounts.sort((a, b) => b.followers - a.followers);
+  // Подтверждённые по профилю (город реально упомянут в адресе/био) — выше,
+  // внутри каждой группы — по числу подписчиков.
+  accounts.sort((a, b) => {
+    const aVerified = a.locationVerified ? 1 : 0;
+    const bVerified = b.locationVerified ? 1 : 0;
+    if (aVerified !== bVerified) return bVerified - aVerified;
+    return b.followers - a.followers;
+  });
+
   return accounts.slice(0, count).map((a, i) => ({ ...a, rank: i + 1 }));
 }

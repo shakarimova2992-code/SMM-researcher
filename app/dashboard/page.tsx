@@ -190,6 +190,12 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <p className="mt-3 text-sm text-white/60">{a.bio}</p>
+                {a.locationVerified === true && (
+                  <Badge tone="mint" className="mt-2 w-fit">📍 Город подтверждён в профиле</Badge>
+                )}
+                {a.locationVerified === false && (
+                  <Badge tone="neutral" className="mt-2 w-fit">📍 Город не подтверждён профилем</Badge>
+                )}
                 <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                   <div>
                     <div className="font-display text-sm font-bold">{formatCompact(a.followers)}</div>

@@ -10,6 +10,10 @@ export type AccountSummary = {
   bio: string;
   gradient: [string, string];
   rank: number;
+  // Только для реальных данных (Apify): город найден в адресе/био самого профиля,
+  // а не только предположен по хэштегу поиска. undefined — проверка не проводилась
+  // (мок-данные или город не был указан в запросе).
+  locationVerified?: boolean;
 };
 
 export type ContentItem = {
