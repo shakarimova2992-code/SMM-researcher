@@ -2,18 +2,6 @@
 import { getSessionEmail } from "@/lib/session";
 import { runApifyActor, ApifyError, isLiveDataEnabled } from "@/lib/live/apify";
 
-// Диагностический эндпоинт: делает НАСТОЯЩИЙ минимальный вызов обоих Apify-акторов
-// и возвращает сырой результат/ошибку прямо в JSON — вместо того чтобы прятать её
-// в серверных логах (console.warn), которые никто не видит. Нужен, чтобы наконец
-// увидеть ТОЧНУЮ причину, почему живой поиск проваливается: неверная схема входа,
-// закончились кредиты Apify, актор переименован/недоступен, блокировка/капча,
-// или просто 0 совпадений по хэштегу.
-//
-// Использование: GET /api/debug/apify?hashtag=маникюр&username=instagram
-// (оба параметра необязательны, есть безопасные значения по умолчанию)
-//
-// Можно удалить вместе с /api/debug после того как разберёмся с поиском.
-
 export const maxDuration = 45;
 
 function describeError(err: unknown): { message: string; cause?: string } {
@@ -30,6 +18,27 @@ function describeError(err: unknown): { message: string; cause?: string } {
   return { message: String(err) };
 }
 
+function summarizeResult(result: PromiseSettledResult<Record<string, any>[]>) {
+  if (result.status === "rejected") {
+    return { ok: false, ...describeError(result.reason) };
+  }
+  const items = result.value;
+  const first = items[0];
+  return {
+    ok: true,
+    itemCount: items.length,
+    firstItemKeys: first ? Object.keys(first) : [],
+    firstItemSample: first
+      ? {
+          ownerUsername: first.ownerUsername ?? first.owner?.username ?? first.username ?? null,
+          likesCount: first.likesCount ?? first.likes ?? null,
+          type: first.type ?? null,
+          caption: typeof first.caption === "string" ? first.caption.slice(0, 80) : null,
+        }
+      : null,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const email = await getSessionEmail();
   if (!email) {
@@ -41,14 +50,17 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const hashtag = searchParams.get("hashtag") || "маникюр";
+  const hashtag = (searchParams.get("hashtag") || "маникюр").replace(/^#/, "");
   const username = searchParams.get("username") || "instagram";
 
-  const [contentResult, profileResult] = await Promise.allSettled([
+  const [directUrlResult, hashtagActorResult, profileResult] = await Promise.allSettled([
     runApifyActor<Record<string, any>>("apify~instagram-scraper", {
-      search: hashtag,
-      searchType: "hashtag",
-      searchLimit: 1,
+      directUrls: [`https://www.instagram.com/explore/tags/${encodeURIComponent(hashtag)}/`],
+      resultsType: "posts",
+      resultsLimit: 5,
+    }),
+    runApifyActor<Record<string, any>>("apify~instagram-hashtag-scraper", {
+      hashtags: [hashtag],
       resultsType: "posts",
       resultsLimit: 5,
     }),
@@ -57,48 +69,15 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  const firstItem = contentResult.status === "fulfilled" ? contentResult.value[0] : null;
-  const nestedArrayField = firstItem
-    ? Object.entries(firstItem).find(([, v]) => Array.isArray(v) && v.length > 0)
-    : undefined;
-
-  const contentReport =
-    contentResult.status === "fulfilled"
-      ? {
-          ok: true,
-          itemCount: contentResult.value.length,
-          firstItemKeys: firstItem ? Object.keys(firstItem) : [],
-          firstItemTopLevel: firstItem
-            ? {
-                name: firstItem.name ?? null,
-                postsCount: firstItem.postsCount ?? null,
-                difficulty: firstItem.difficulty ?? null,
-              }
-            : null,
-          nestedArrayFieldName: nestedArrayField ? nestedArrayField[0] : null,
-          nestedArrayLength: nestedArrayField ? (nestedArrayField[1] as any[]).length : 0,
-          nestedFirstItemKeys:
-            nestedArrayField && (nestedArrayField[1] as any[])[0]
-              ? Object.keys((nestedArrayField[1] as any[])[0])
-              : [],
-          nestedFirstItemSample:
-            nestedArrayField && (nestedArrayField[1] as any[])[0]
-              ? JSON.stringify((nestedArrayField[1] as any[])[0]).slice(0, 800)
-              : null,
-        }
-      : { ok: false, ...describeError(contentResult.reason) };
-
   const profileReport =
     profileResult.status === "fulfilled"
       ? {
           ok: true,
           itemCount: profileResult.value.length,
-          firstItemKeys: profileResult.value[0] ? Object.keys(profileResult.value[0]) : [],
           firstItemSample: profileResult.value[0]
             ? {
                 username: profileResult.value[0].username ?? null,
                 followersCount: profileResult.value[0].followersCount ?? profileResult.value[0].followers ?? null,
-                biography: (profileResult.value[0].biography ?? profileResult.value[0].bio ?? "").slice(0, 120),
               }
             : null,
         }
@@ -108,7 +87,16 @@ export async function GET(req: NextRequest) {
     ok: true,
     testedAt: new Date().toISOString(),
     inputUsed: { hashtag, username },
-    contentActor: { actorId: "apify~instagram-scraper", ...contentReport },
+    directUrlsApproach: {
+      actorId: "apify~instagram-scraper",
+      inputSent: { directUrls: [`https://www.instagram.com/explore/tags/${hashtag}/`], resultsType: "posts", resultsLimit: 5 },
+      ...summarizeResult(directUrlResult),
+    },
+    hashtagScraperApproach: {
+      actorId: "apify~instagram-hashtag-scraper",
+      inputSent: { hashtags: [hashtag], resultsType: "posts", resultsLimit: 5 },
+      ...summarizeResult(hashtagActorResult),
+    },
     profileActor: { actorId: "apify~instagram-profile-scraper", ...profileReport },
   });
 }
