@@ -57,19 +57,34 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
+  const firstItem = contentResult.status === "fulfilled" ? contentResult.value[0] : null;
+  const nestedArrayField = firstItem
+    ? Object.entries(firstItem).find(([, v]) => Array.isArray(v) && v.length > 0)
+    : undefined;
+
   const contentReport =
     contentResult.status === "fulfilled"
       ? {
           ok: true,
           itemCount: contentResult.value.length,
-          firstItemKeys: contentResult.value[0] ? Object.keys(contentResult.value[0]) : [],
-          firstItemSample: contentResult.value[0]
+          firstItemKeys: firstItem ? Object.keys(firstItem) : [],
+          firstItemTopLevel: firstItem
             ? {
-                ownerUsername: contentResult.value[0].ownerUsername ?? contentResult.value[0].owner?.username ?? contentResult.value[0].username ?? null,
-                likesCount: contentResult.value[0].likesCount ?? contentResult.value[0].likes ?? null,
-                type: contentResult.value[0].type ?? null,
+                name: firstItem.name ?? null,
+                postsCount: firstItem.postsCount ?? null,
+                difficulty: firstItem.difficulty ?? null,
               }
             : null,
+          nestedArrayFieldName: nestedArrayField ? nestedArrayField[0] : null,
+          nestedArrayLength: nestedArrayField ? (nestedArrayField[1] as any[]).length : 0,
+          nestedFirstItemKeys:
+            nestedArrayField && (nestedArrayField[1] as any[])[0]
+              ? Object.keys((nestedArrayField[1] as any[])[0])
+              : [],
+          nestedFirstItemSample:
+            nestedArrayField && (nestedArrayField[1] as any[])[0]
+              ? JSON.stringify((nestedArrayField[1] as any[])[0]).slice(0, 800)
+              : null,
         }
       : { ok: false, ...describeError(contentResult.reason) };
 
