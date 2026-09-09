@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionEmail } from "@/lib/session";
 import { getUser, bindAccount } from "@/lib/db";
+import { isUnlimitedEmail } from "@/lib/config";
+import { isLiveDataEnabled } from "@/lib/live/apify";
+import { buildLiveAnalysis } from "@/lib/live/liveEngine";
 import {
   generateTopPosts,
   generateTopReels,
@@ -23,8 +26,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Не хватает данных аккаунта" }, { status: 400 });
   }
 
+  const unlimited = isUnlimitedEmail(email);
   const user = await getUser(email);
-  if (user?.boundAccount && user.boundAccount !== username) {
+  if (!unlimited && user?.boundAccount && user.boundAccount !== username) {
     return NextResponse.json(
       {
         ok: false,
@@ -36,7 +40,40 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  await bindAccount(email, username, niche);
+  // Тестовые аккаунты из UNLIMITED_EMAILS не привязываются к первому же
+  // проанализированному username — им можно проверять сколько угодно аккаунтов.
+  if (!unlimited) {
+    await bindAccount(email, username, niche);
+  }
+
+  // Если задан APIFY_API_TOKEN — пробуем получить реальные данные Instagram.
+  // Любая ошибка/пустой ответ (сеть, приватный аккаунт, несуществующий username,
+  // исчерпанный лимит Apify) тихо для пользователя откатывается на мок-генератор,
+  // но помечается в ответе через dataSource/warning, чтобы интерфейс мог честно
+  // показать, какие данные он видит.
+  if (isLiveDataEnabled()) {
+    try {
+      const live = await buildLiveAnalysis(username, niche);
+      if (live) {
+        return NextResponse.json({
+          ok: true,
+          username,
+          niche,
+          posts: live.posts,
+          reels: live.reels,
+          report: live.report,
+          checklist: live.checklist,
+          ideas: live.ideas,
+          dataSource: "live",
+          warning: live.partial
+            ? "Удалось получить только часть данных (посты или Reels) — остальное показано как «нет данных», ничего не выдумываем."
+            : null,
+        });
+      }
+    } catch (err) {
+      console.warn(`[analyze] Живые данные для @${username} не получены, откат на мок:`, err instanceof Error ? err.message : err);
+    }
+  }
 
   const posts = generateTopPosts(username, niche, 10);
   const reels = generateTopReels(username, niche, 10);
@@ -44,5 +81,18 @@ export async function POST(req: NextRequest) {
   const checklist = generateChecklist(username, niche);
   const ideas = generateIdeas(niche, 10);
 
-  return NextResponse.json({ ok: true, username, niche, posts, reels, report, checklist, ideas });
+  return NextResponse.json({
+    ok: true,
+    username,
+    niche,
+    posts,
+    reels,
+    report,
+    checklist,
+    ideas,
+    dataSource: "mock",
+    warning: isLiveDataEnabled()
+      ? "Не удалось получить реальные данные этого аккаунта (закрытый профиль, неверный username или недоступен сервис-парсер) — показан демонстрационный мок-пример."
+      : null,
+  });
 }

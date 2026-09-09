@@ -27,6 +27,7 @@ export type ContentItem = {
   hook: string;
   gradient: [string, string];
   emoji: string;
+  permalink: string;
 };
 
 export type DayHour = { day: string; hour: number; value: number };

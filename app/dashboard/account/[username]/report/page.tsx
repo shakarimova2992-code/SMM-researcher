@@ -2,10 +2,10 @@
 
 import { Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { AccountTabs, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
+import { AccountTabs, DataSourceBanner, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
 import { useAnalysis } from "@/components/useAnalysis";
 import { Badge, Card } from "@/components/ui";
-import { formatCompact } from "@/lib/format";
+import { formatCompact, formatPercent } from "@/lib/format";
 import { FormatMixChart, GrowthChart, Heatmap } from "@/components/charts";
 
 export default function ReportPage() {
@@ -30,14 +30,16 @@ function Inner() {
 
       {!loading && data && (
         <div className="space-y-6">
+          <DataSourceBanner dataSource={data.dataSource} warning={data.warning} />
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Ср. лайки на пост" value={formatCompact(data.report.avgLikes)} />
             <Stat label="Ср. просмотры Reels" value={formatCompact(data.report.avgViews)} />
             <Stat
               label="Вовлечённость (ER)"
-              value={`${data.report.engagementRate}%`}
-              hint={`бенчмарк ниши ${data.report.engagementBenchmark}%`}
-              good={data.report.engagementRate >= data.report.engagementBenchmark}
+              value={formatPercent(data.report.engagementRate)}
+              hint={`бенчмарк ниши ~${data.report.engagementBenchmark}%`}
+              good={Number.isFinite(data.report.engagementRate) ? data.report.engagementRate >= data.report.engagementBenchmark : undefined}
             />
             <Stat label="Публикаций в неделю" value={`${data.report.postFrequencyPerWeek} постов · ${data.report.reelFrequencyPerWeek} Reels`} />
           </div>

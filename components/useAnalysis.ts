@@ -11,6 +11,8 @@ export type AnalysisData = {
   report: Report;
   checklist: ChecklistItem[];
   ideas: IdeaItem[];
+  dataSource?: "live" | "mock";
+  warning?: string | null;
 };
 
 type State = {

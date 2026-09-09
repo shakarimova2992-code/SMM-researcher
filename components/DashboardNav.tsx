@@ -7,9 +7,11 @@ import { Badge, Container, GhostButton, Logo } from "@/components/ui";
 export default function DashboardNav({
   email,
   boundAccount,
+  unlimited,
 }: {
   email: string;
   boundAccount: string | null;
+  unlimited?: boolean;
 }) {
   const router = useRouter();
 
@@ -24,7 +26,8 @@ export default function DashboardNav({
       <Container className="flex flex-wrap items-center justify-between gap-3 py-5">
         <Logo />
         <div className="flex items-center gap-3">
-          {boundAccount && (
+          {unlimited && <Badge tone="gold">🧪 Безлимитный тестовый доступ</Badge>}
+          {!unlimited && boundAccount && (
             <Link href={`/dashboard/account/${boundAccount}`}>
               <Badge tone="mint" className="cursor-pointer">🔒 @{boundAccount}</Badge>
             </Link>

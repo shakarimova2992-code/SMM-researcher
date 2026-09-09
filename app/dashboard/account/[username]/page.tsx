@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { AccountTabs, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
+import { AccountTabs, DataSourceBanner, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
 import ContentCard from "@/components/ContentCard";
 import { useAnalysis } from "@/components/useAnalysis";
 import clsx from "clsx";
@@ -31,6 +31,7 @@ function Inner() {
 
       {!loading && data && (
         <div>
+          <DataSourceBanner dataSource={data.dataSource} warning={data.warning} />
           <div className="mb-6 flex gap-2 rounded-full border border-white/10 bg-white/5 p-1 w-fit">
             {(["posts", "reels"] as const).map((t) => (
               <button

@@ -2,7 +2,7 @@
 
 import { Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { AccountTabs, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
+import { AccountTabs, DataSourceBanner, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
 import { useAnalysis } from "@/components/useAnalysis";
 import { Badge, Card } from "@/components/ui";
 
@@ -28,6 +28,7 @@ function Inner() {
 
       {!loading && data && (
         <div>
+          <DataSourceBanner dataSource={data.dataSource} warning={data.warning} />
           <p className="mb-6 max-w-xl text-sm text-white/60">
             Топ-10 тем адаптированы под нишу «{niche}» на основе форматов, которые уже хорошо работают у лидеров этой ниши.
           </p>

@@ -18,6 +18,17 @@ import { formatCompact } from "@/lib/format";
 const PIE_COLORS = ["#8226ff", "#ff3d7f", "#ffb703"];
 
 export function GrowthChart({ data }: { data: Report["growth"] }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex h-[220px] flex-col items-center justify-center gap-2 rounded-xl bg-black/15 text-center">
+        <span className="text-2xl">📈</span>
+        <p className="max-w-[220px] text-xs text-white/40">
+          История роста подписчиков недоступна — ни один открытый источник не отдаёт её для чужих аккаунтов.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={220}>
       <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

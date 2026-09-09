@@ -91,3 +91,28 @@ export function ErrorBlock({ message }: { message: string }) {
     <Card className="py-10 text-center text-sm text-flame-400">{message}</Card>
   );
 }
+
+export function DataSourceBanner({ dataSource, warning }: { dataSource?: "live" | "mock"; warning?: string | null }) {
+  if (!dataSource) return null;
+
+  if (dataSource === "live") {
+    return (
+      <div className="mb-6 flex flex-wrap items-center gap-2 rounded-2xl border border-mint-400/30 bg-mint-400/10 px-4 py-3 text-sm text-white/80">
+        <span>✅</span>
+        <span className="font-semibold text-mint-400">Реальные данные Instagram</span>
+        <span className="text-white/60">— профиль и публикации получены напрямую из аккаунта.</span>
+        {warning && <span className="text-gold-400">{warning}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-2 rounded-2xl border border-gold-400/30 bg-gold-400/10 px-4 py-3 text-sm text-white/80">
+      <span>🧪</span>
+      <span className="font-semibold text-gold-400">Демонстрационные данные</span>
+      <span className="text-white/60">
+        {warning ?? "Не удалось получить реальные данные этого аккаунта — показан пример на моковых данных."}
+      </span>
+    </div>
+  );
+}

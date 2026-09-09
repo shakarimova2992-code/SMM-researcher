@@ -64,6 +64,25 @@ function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+const SHORTCODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+function generateShortcode(rand: () => number): string {
+  let out = "";
+  for (let i = 0; i < 11; i++) out += SHORTCODE_ALPHABET[Math.floor(rand() * SHORTCODE_ALPHABET.length)];
+  return out;
+}
+
+// Ссылка на сам разбираемый пост/Reels в Instagram, в реальном формате URL
+// (instagram.com/p/<shortcode>/ или /reel/<shortcode>/). В прототипе аккаунты и
+// публикации мок-сгенерированы, поэтому shortcode не ведёт на существующий пост —
+// это плейсхолдер под тот же формат ссылки, что вернёт реальный источник данных.
+// При подключении реального парсинга (см. README) замените эту функцию на
+// permalink, который отдаёт сам источник (Apify/RapidAPI и т.п.).
+function permalinkFor(type: "post" | "reel", rand: () => number): string {
+  const shortcode = generateShortcode(rand);
+  return `https://www.instagram.com/${type === "reel" ? "reel" : "p"}/${shortcode}/`;
+}
+
 function followersForRank(rand: () => number, rank: number, total: number): number {
   // Первые места — заметно крупнее (степенное распределение), дальше выравнивается
   const base = 250000 * Math.pow(1 - rank / (total + 2), 2.4);
@@ -158,6 +177,7 @@ function generateContentList(
       hook: cap(hook),
       gradient: pick(itemRand, GRADIENTS),
       emoji: pick(itemRand, emojis),
+      permalink: permalinkFor(type, itemRand),
     };
   });
 

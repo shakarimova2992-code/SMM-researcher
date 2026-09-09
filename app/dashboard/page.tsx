@@ -22,6 +22,10 @@ export default function DashboardPage() {
   const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [directHandle, setDirectHandle] = useState("");
+  const [directNiche, setDirectNiche] = useState("");
+  const [directError, setDirectError] = useState<string | null>(null);
+
   function applySuggestion(s: string) {
     const parts = s.split(" в ");
     setNiche(parts[0]);
@@ -56,8 +60,33 @@ export default function DashboardPage() {
     }
   }
 
-  function openAccount(username: string) {
-    router.push(`/dashboard/account/${username}?niche=${encodeURIComponent(niche)}`);
+  function openAccount(username: string, nicheForAccount: string) {
+    router.push(`/dashboard/account/${username}?niche=${encodeURIComponent(nicheForAccount)}`);
+  }
+
+  function cleanHandle(raw: string): string {
+    return raw
+      .trim()
+      .replace(/^@/, "")
+      .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "")
+      .replace(/\/.*$/, "")
+      .replace(/[?#].*$/, "");
+  }
+
+  function analyzeDirect(e: React.FormEvent) {
+    e.preventDefault();
+    const handle = cleanHandle(directHandle);
+    if (!handle) {
+      setDirectError("Введите имя аккаунта или ссылку на профиль");
+      return;
+    }
+    const effectiveNiche = directNiche.trim() || niche.trim();
+    if (!effectiveNiche) {
+      setDirectError("Укажите нишу аккаунта — это нужно для точного анализа и подбора тем");
+      return;
+    }
+    setDirectError(null);
+    openAccount(handle, effectiveNiche);
   }
 
   return (
@@ -101,6 +130,34 @@ export default function DashboardPage() {
         {error && <p className="mt-3 text-sm text-flame-400">{error}</p>}
       </Card>
 
+      <Card className="mt-4">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🎯</span>
+          <h4 className="font-display text-sm font-bold">Уже знаете аккаунт для анализа?</h4>
+        </div>
+        <p className="mt-1 text-xs text-white/50">
+          Свой аккаунт или аккаунт клиента — введите ник или ссылку на профиль и перейдите к анализу напрямую, без поиска по нише.
+        </p>
+        <form onSubmit={analyzeDirect} className="mt-4 grid gap-3 sm:grid-cols-[1fr_0.8fr_auto]">
+          <input
+            value={directHandle}
+            onChange={(e) => setDirectHandle(e.target.value)}
+            placeholder="@username или ссылка на профиль"
+            className="rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm outline-none placeholder:text-white/30 focus:border-violet-400"
+          />
+          <input
+            value={directNiche}
+            onChange={(e) => setDirectNiche(e.target.value)}
+            placeholder={niche ? `Ниша (по умолчанию «${niche}»)` : "Ниша аккаунта"}
+            className="rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm outline-none placeholder:text-white/30 focus:border-violet-400"
+          />
+          <GhostButton type="submit" className="whitespace-nowrap px-7">
+            Анализировать напрямую →
+          </GhostButton>
+        </form>
+        {directError && <p className="mt-3 text-sm text-flame-400">{directError}</p>}
+      </Card>
+
       {accounts && (
         <div className="mt-10">
           <div className="mb-4 flex items-center justify-between">
@@ -140,7 +197,7 @@ export default function DashboardPage() {
                     <div className="text-[10px] text-white/40">вовлечённость</div>
                   </div>
                 </div>
-                <GhostButton onClick={() => openAccount(a.username)} className="mt-5 w-full py-2.5 text-sm">
+                <GhostButton onClick={() => openAccount(a.username, niche)} className="mt-5 w-full py-2.5 text-sm">
                   Анализировать →
                 </GhostButton>
               </Card>

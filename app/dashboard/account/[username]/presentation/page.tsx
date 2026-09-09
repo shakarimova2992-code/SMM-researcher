@@ -2,10 +2,10 @@
 
 import { Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { AccountTabs, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
+import { AccountTabs, DataSourceBanner, ErrorBlock, LoadingBlock, LockedBlock } from "@/components/AccountShell";
 import { useAnalysis } from "@/components/useAnalysis";
 import { Badge, Logo, PrimaryButton } from "@/components/ui";
-import { formatCompact } from "@/lib/format";
+import { formatCompact, formatPercent } from "@/lib/format";
 import type { ChecklistItem } from "@/lib/mock/types";
 import clsx from "clsx";
 
@@ -39,6 +39,9 @@ function Inner() {
 
       {!loading && data && (
         <div>
+          <div className="no-print">
+            <DataSourceBanner dataSource={data.dataSource} warning={data.warning} />
+          </div>
           <div className="no-print mb-6 flex justify-end">
             <PrimaryButton onClick={() => window.print()} className="px-6 py-3 text-sm">
               🖨️ Скачать / распечатать презентацию
@@ -65,8 +68,8 @@ function Inner() {
               <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <MiniStat label="Ср. лайки/пост" value={formatCompact(data.report.avgLikes)} />
                 <MiniStat label="Ср. просмотры Reels" value={formatCompact(data.report.avgViews)} />
-                <MiniStat label="Вовлечённость" value={`${data.report.engagementRate}%`} />
-                <MiniStat label="Бенчмарк ниши" value={`${data.report.engagementBenchmark}%`} />
+                <MiniStat label="Вовлечённость" value={formatPercent(data.report.engagementRate)} />
+                <MiniStat label="Бенчмарк ниши" value={`~${data.report.engagementBenchmark}%`} />
               </div>
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 <div className="rounded-2xl bg-black/20 p-5">
