@@ -19,10 +19,10 @@ import type { AccountSummary } from "@/lib/mock/types";
 // Это по-прежнему приближение, а не гарантированный полный охват города, но
 // данные (подписчики, био, посты) там, где они найдены — настоящие.
 //
-// Как и в liveEngine.ts — поля ответа Apify не проверены живым вызовом
-// из-за сетевых ограничений песочницы, где это писалось. Любая ошибка
-// или пустой результат просто возвращает null, и вызывающий код (route.ts)
-// откатывается на мок с честным предупреждением в интерфейсе.
+// Формат запроса к хэштег-актору проверен реальным вызовом через /api/debug/apify
+// (см. коммент ниже про directUrls). Любая ошибка или пустой результат просто
+// возвращает null, и вызывающий код (route.ts) откатывается на мок с честным
+// предупреждением в интерфейсе.
 
 const CONTENT_ACTOR = "apify~instagram-scraper";
 const PROFILE_ACTOR = "apify~instagram-profile-scraper";
@@ -32,10 +32,13 @@ type RawProfile = Record<string, any>;
 
 function buildHashtagCandidates(niche: ReturnType<typeof detectNiche>, location: string): string[] {
   const citySlug = location ? translit(location) : "";
-  const base = niche.hashtags.slice(0, 3);
+  const base = niche.hashtags.slice(0, 2);
   const withCity = citySlug ? base.map((tag) => `${tag}${citySlug}`) : [];
-  // Сначала пробуем хэштег+город (точнее по локации), затем просто нишевые (шире охват)
-  return [...withCity, ...base];
+  // Хэштег+город (точнее по локации) + просто нишевые (шире охват). Ограничено
+  // 4 кандидатами и запускается параллельно (см. ниже) — иначе на serverless
+  // рискуем упереться в лимит времени выполнения функции при последовательных
+  // вызовах Apify.
+  return [...withCity, ...base].slice(0, 4);
 }
 
 // Токены для проверки города по тексту профиля: сама фраза как есть (кириллица)
@@ -76,23 +79,37 @@ export async function searchLiveAccounts(nicheInput: string, location: string, c
 
   const owners = new Map<string, RawItem>(); // username -> один найденный пост (для оценки ER)
 
-  for (const tag of candidates) {
-    if (owners.size >= count * 3) break; // насобирали достаточно кандидатов для отбора топа
-    try {
-      const items = await runApifyActor<RawItem>(CONTENT_ACTOR, {
-        search: tag,
-        searchType: "hashtag",
-        searchLimit: 1,
+  // ВАЖНО (найдено через /api/debug/apify на реальном вызове): комбинация
+  // { search, searchType: "hashtag", resultsType: "posts" } у этого актора —
+  // это официально задокументированное поведение "подбор похожих хэштегов и их
+  // объём", а НЕ список постов. Из-за этого поиск никогда не находил авторов.
+  // Правильный способ получить настоящие посты по конкретному хэштегу —
+  // указать прямую ссылку на страницу хэштега через directUrls. Проверено
+  // реальным вызовом: возвращает настоящие посты с настоящими ownerUsername.
+  //
+  // Все хэштеги запрашиваются ОДНОВРЕМЕННО (не по очереди) — иначе на serverless
+  // рискуем упереться в лимит времени выполнения функции: 4 последовательных
+  // запроса к Apify легко суммируются в 1-2 минуты, а параллельно — это время
+  // одного самого медленного запроса.
+  const results = await Promise.allSettled(
+    candidates.map((tag) =>
+      runApifyActor<RawItem>(CONTENT_ACTOR, {
+        directUrls: [`https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`],
         resultsType: "posts",
         resultsLimit: 30,
-      });
-      for (const item of items) {
-        const owner = firstDefined<string>(item.ownerUsername, item.owner?.username, item.username);
-        if (!owner || owners.has(owner)) continue;
-        owners.set(owner, item);
-      }
-    } catch (err) {
-      console.warn(`[live-search] Хэштег "${tag}" не сработал:`, err instanceof Error ? err.message : err);
+      }).then((items) => ({ tag, items }))
+    )
+  );
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.warn("[live-search] Хэштег не сработал:", result.reason instanceof Error ? result.reason.message : result.reason);
+      continue;
+    }
+    for (const item of result.value.items) {
+      const owner = firstDefined<string>(item.ownerUsername, item.owner?.username, item.username);
+      if (!owner || owners.has(owner)) continue;
+      owners.set(owner, item);
     }
   }
 
