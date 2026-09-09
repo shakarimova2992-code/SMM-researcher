@@ -1,10 +1,18 @@
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
 
 // Простое файловое хранилище для прототипа.
 // В проде легко заменить на Postgres/Supabase/PlanetScale — интерфейс тот же.
-
-const DB_PATH = path.join(process.cwd(), "data", "db.json");
+//
+// На serverless-платформах (Vercel и т.п.) папка проекта доступна только на чтение —
+// запись разрешена лишь во временную папку ОС. Поэтому там храним db.json в os.tmpdir(),
+// а не в папке проекта. Локально (`npm run dev`/`npm run start`) по-прежнему пишем прямо
+// в data/db.json, чтобы данные переживали перезапуск сервера при разработке.
+// ⚠️ /tmp на serverless — эфемерный: обнуляется при холодном старте/новом деплое.
+// Для реальных клиентов (не только вашего тестирования) нужно подключить настоящую БД.
+const DATA_DIR = process.env.VERCEL ? path.join(os.tmpdir(), "nichescope-data") : path.join(process.cwd(), "data");
+const DB_PATH = path.join(DATA_DIR, "db.json");
 
 export type UserRecord = {
   email: string;
