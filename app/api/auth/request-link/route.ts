@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { nanoid } from "nanoid";
-import { upsertUser, createToken } from "@/lib/db";
+import { upsertUser } from "@/lib/db";
+import { createMagicLinkToken } from "@/lib/session";
 import { sendMagicLinkEmail } from "@/lib/mail";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const TOKEN_TTL_MS = 15 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -14,9 +13,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Введите корректный email" }, { status: 400 });
   }
 
-  await upsertUser(email);
-  const token = nanoid(32);
-  await createToken(email, token, TOKEN_TTL_MS);
+  // Файловая "БД" пользователя — best-effort: на serverless она может не
+  // сохраниться до следующего запроса (см. комментарий в lib/session.ts),
+  // но сам вход по ссылке от этого больше не зависит, поэтому ошибку записи
+  // здесь не считаем фатальной.
+  try {
+    await upsertUser(email);
+  } catch (err) {
+    console.warn("[auth] upsertUser не удался (не критично):", err instanceof Error ? err.message : err);
+  }
+
+  const token = await createMagicLinkToken(email);
 
   const origin = req.nextUrl.origin;
   const link = `${origin}/api/auth/verify?token=${token}`;
