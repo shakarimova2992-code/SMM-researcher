@@ -1,6 +1,14 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSessionEmail } from "@/lib/session";
 import { runApifyActor, ApifyError, isLiveDataEnabled } from "@/lib/live/apify";
+
+// Диагностика идеи: искать организации по нише+городу через 2ГИС (у него
+// есть настоящая привязка к конкретному городу — в отличие от хэштегов
+// Instagram) и вытаскивать из карточек организаций ссылку на Instagram.
+// Проверяем реальным вызовом, действительно ли актор возвращает Instagram-
+// ссылки для организаций в конкретном (не только российском/крупном) городе.
+//
+// Использование: GET /api/debug/apify?query=маникюр&city=Усть-Каменогорск
 
 export const maxDuration = 45;
 
@@ -18,25 +26,18 @@ function describeError(err: unknown): { message: string; cause?: string } {
   return { message: String(err) };
 }
 
-function summarizeResult(result: PromiseSettledResult<Record<string, any>[]>) {
-  if (result.status === "rejected") {
-    return { ok: false, ...describeError(result.reason) };
+function pickInstagramLink(item: Record<string, any>): string | null {
+  const candidates: string[] = [];
+  if (typeof item.website === "string") candidates.push(item.website);
+  if (typeof item.socialLinks === "string") candidates.push(item.socialLinks);
+  if (item.socials && typeof item.socials === "object") {
+    for (const v of Object.values(item.socials)) {
+      if (Array.isArray(v)) candidates.push(...v.map(String));
+      else if (typeof v === "string") candidates.push(v);
+    }
   }
-  const items = result.value;
-  const first = items[0];
-  return {
-    ok: true,
-    itemCount: items.length,
-    firstItemKeys: first ? Object.keys(first) : [],
-    firstItemSample: first
-      ? {
-          ownerUsername: first.ownerUsername ?? first.owner?.username ?? first.username ?? null,
-          likesCount: first.likesCount ?? first.likes ?? null,
-          type: first.type ?? null,
-          caption: typeof first.caption === "string" ? first.caption.slice(0, 80) : null,
-        }
-      : null,
-  };
+  const found = candidates.find((c) => /instagram\.com/i.test(c));
+  return found ?? null;
 }
 
 export async function GET(req: NextRequest) {
@@ -44,59 +45,77 @@ export async function GET(req: NextRequest) {
   if (!email) {
     return NextResponse.json({ ok: false, error: "Требуется вход" }, { status: 401 });
   }
-
   if (!isLiveDataEnabled()) {
     return NextResponse.json({ ok: false, error: "APIFY_API_TOKEN не задан на сервере" }, { status: 400 });
   }
 
   const { searchParams } = new URL(req.url);
-  const hashtag = (searchParams.get("hashtag") || "маникюр").replace(/^#/, "");
-  const username = searchParams.get("username") || "instagram";
+  const query = searchParams.get("query") || "маникюр";
+  const city = searchParams.get("city") || "Усть-Каменогорск";
 
-  const [directUrlResult, hashtagActorResult, profileResult] = await Promise.allSettled([
-    runApifyActor<Record<string, any>>("apify~instagram-scraper", {
-      directUrls: [`https://www.instagram.com/explore/tags/${encodeURIComponent(hashtag)}/`],
-      resultsType: "posts",
-      resultsLimit: 5,
-    }),
-    runApifyActor<Record<string, any>>("apify~instagram-hashtag-scraper", {
-      hashtags: [hashtag],
-      resultsType: "posts",
-      resultsLimit: 5,
-    }),
-    runApifyActor<Record<string, any>>("apify~instagram-profile-scraper", {
-      usernames: [username],
-    }),
-  ]);
+  const results: Record<string, any> = {};
 
-  const profileReport =
-    profileResult.status === "fulfilled"
-      ? {
-          ok: true,
-          itemCount: profileResult.value.length,
-          firstItemSample: profileResult.value[0]
-            ? {
-                username: profileResult.value[0].username ?? null,
-                followersCount: profileResult.value[0].followersCount ?? profileResult.value[0].followers ?? null,
-              }
-            : null,
-        }
-      : { ok: false, ...describeError(profileResult.reason) };
+  try {
+    const items = await runApifyActor<Record<string, any>>("tugelbay~2gis-scraper", {
+      query,
+      city,
+      maxItems: 10,
+    });
+    const withInstagram: (Record<string, any> & { __instagramFound: string | null })[] = items.map((it) => ({
+      ...it,
+      __instagramFound: pickInstagramLink(it),
+    }));
+    results.tugelbay2gis = {
+      ok: true,
+      actorId: "tugelbay~2gis-scraper",
+      itemCount: items.length,
+      firstItemKeys: items[0] ? Object.keys(items[0]) : [],
+      itemsWithInstagram: withInstagram.filter((it) => it.__instagramFound).length,
+      sample: withInstagram.slice(0, 5).map((it) => ({
+        name: it.name ?? it.title ?? null,
+        website: it.website ?? null,
+        socialLinks: it.socialLinks ?? null,
+        socials: it.socials ?? null,
+        instagramFound: it.__instagramFound,
+        address: it.address ?? null,
+      })),
+    };
+  } catch (err) {
+    results.tugelbay2gis = { ok: false, actorId: "tugelbay~2gis-scraper", ...describeError(err) };
+  }
+
+  try {
+    const items = await runApifyActor<Record<string, any>>("m_mamaev~2gis-places-scraper", {
+      searchQueries: [query],
+      location: city,
+      maxItems: 10,
+    });
+    const withInstagram: (Record<string, any> & { __instagramFound: string | null })[] = items.map((it) => ({
+      ...it,
+      __instagramFound: pickInstagramLink(it),
+    }));
+    results.mamaev2gis = {
+      ok: true,
+      actorId: "m_mamaev~2gis-places-scraper",
+      itemCount: items.length,
+      firstItemKeys: items[0] ? Object.keys(items[0]) : [],
+      itemsWithInstagram: withInstagram.filter((it) => it.__instagramFound).length,
+      sample: withInstagram.slice(0, 5).map((it) => ({
+        title: it.title ?? it.name ?? null,
+        website: it.website ?? null,
+        socials: it.socials ?? null,
+        instagramFound: it.__instagramFound,
+        address: it.address ?? null,
+      })),
+    };
+  } catch (err) {
+    results.mamaev2gis = { ok: false, actorId: "m_mamaev~2gis-places-scraper", ...describeError(err) };
+  }
 
   return NextResponse.json({
     ok: true,
     testedAt: new Date().toISOString(),
-    inputUsed: { hashtag, username },
-    directUrlsApproach: {
-      actorId: "apify~instagram-scraper",
-      inputSent: { directUrls: [`https://www.instagram.com/explore/tags/${hashtag}/`], resultsType: "posts", resultsLimit: 5 },
-      ...summarizeResult(directUrlResult),
-    },
-    hashtagScraperApproach: {
-      actorId: "apify~instagram-hashtag-scraper",
-      inputSent: { hashtags: [hashtag], resultsType: "posts", resultsLimit: 5 },
-      ...summarizeResult(hashtagActorResult),
-    },
-    profileActor: { actorId: "apify~instagram-profile-scraper", ...profileReport },
+    inputUsed: { query, city },
+    ...results,
   });
 }
