@@ -86,7 +86,12 @@ export default function DashboardPage() {
       setDirectError("Введите имя аккаунта или ссылку на профиль");
       return;
     }
-    const effectiveNiche = directNiche.trim() || niche.trim();
+    // ВАЖНО: раньше здесь был неявный откат на нишу из верхнего поля поиска
+    // (niche), если это поле оставляли пустым — из-за этого ниша для прямого
+    // анализа могла молча "приехать" из совершенно другого, ранее введённого
+    // запроса, и было невозможно понять, откуда она взялась. Теперь нишу для
+    // прямого анализа нужно указывать явно каждый раз.
+    const effectiveNiche = directNiche.trim();
     if (!effectiveNiche) {
       setDirectError("Укажите нишу аккаунта — это нужно для точного анализа и подбора тем");
       return;
@@ -154,7 +159,7 @@ export default function DashboardPage() {
           <input
             value={directNiche}
             onChange={(e) => setDirectNiche(e.target.value)}
-            placeholder={niche ? `Ниша (по умолчанию «${niche}»)` : "Ниша аккаунта"}
+            placeholder="Ниша аккаунта (обязательно)"
             className="rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm outline-none placeholder:text-white/30 focus:border-violet-400"
           />
           <GhostButton type="submit" className="whitespace-nowrap px-7">
