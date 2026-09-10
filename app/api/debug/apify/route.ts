@@ -8,9 +8,17 @@ import { runApifyActor, ApifyError, isLiveDataEnabled } from "@/lib/live/apify";
 // Проверяем реальным вызовом, действительно ли актор возвращает Instagram-
 // ссылки для организаций в конкретном (не только российском/крупном) городе.
 //
+// ВАЖНО: первая версия этой диагностики делала два вызова к 2ГИС ПО ОЧЕРЕДИ
+// (await один за другим) — 2ГИС-скрейперы реально сканируют страницы и
+// медленнее, чем Instagram-акторы, поэтому суммарное время легко превышало
+// лимит выполнения функции и Vercel обрывал запрос по 504 до того, как мы
+// сами успевали корректно прерваться. Теперь оба вызова идут параллельно
+// с увеличенным индивидуальным таймаутом.
+//
 // Использование: GET /api/debug/apify?query=маникюр&city=Усть-Каменогорск
 
-export const maxDuration = 45;
+export const maxDuration = 120;
+const TWOGIS_TIMEOUT_MS = 90_000;
 
 function describeError(err: unknown): { message: string; cause?: string } {
   if (err instanceof ApifyError) {
@@ -40,6 +48,28 @@ function pickInstagramLink(item: Record<string, any>): string | null {
   return found ?? null;
 }
 
+function summarizeItems(items: Record<string, any>[], actorId: string) {
+  const withInstagram: (Record<string, any> & { __instagramFound: string | null })[] = items.map((it) => ({
+    ...it,
+    __instagramFound: pickInstagramLink(it),
+  }));
+  return {
+    ok: true as const,
+    actorId,
+    itemCount: items.length,
+    firstItemKeys: items[0] ? Object.keys(items[0]) : [],
+    itemsWithInstagram: withInstagram.filter((it) => it.__instagramFound).length,
+    sample: withInstagram.slice(0, 5).map((it) => ({
+      name: it.name ?? it.title ?? null,
+      website: it.website ?? null,
+      socialLinks: it.socialLinks ?? null,
+      socials: it.socials ?? null,
+      instagramFound: it.__instagramFound,
+      address: it.address ?? null,
+    })),
+  };
+}
+
 export async function GET(req: NextRequest) {
   const email = await getSessionEmail();
   if (!email) {
@@ -53,69 +83,30 @@ export async function GET(req: NextRequest) {
   const query = searchParams.get("query") || "маникюр";
   const city = searchParams.get("city") || "Усть-Каменогорск";
 
-  const results: Record<string, any> = {};
+  const [tugelbayResult, mamaevResult] = await Promise.allSettled([
+    runApifyActor<Record<string, any>>("tugelbay~2gis-scraper", { query, city, maxItems: 10 }, TWOGIS_TIMEOUT_MS),
+    runApifyActor<Record<string, any>>(
+      "m_mamaev~2gis-places-scraper",
+      { searchQueries: [query], location: city, maxItems: 10 },
+      TWOGIS_TIMEOUT_MS
+    ),
+  ]);
 
-  try {
-    const items = await runApifyActor<Record<string, any>>("tugelbay~2gis-scraper", {
-      query,
-      city,
-      maxItems: 10,
-    });
-    const withInstagram: (Record<string, any> & { __instagramFound: string | null })[] = items.map((it) => ({
-      ...it,
-      __instagramFound: pickInstagramLink(it),
-    }));
-    results.tugelbay2gis = {
-      ok: true,
-      actorId: "tugelbay~2gis-scraper",
-      itemCount: items.length,
-      firstItemKeys: items[0] ? Object.keys(items[0]) : [],
-      itemsWithInstagram: withInstagram.filter((it) => it.__instagramFound).length,
-      sample: withInstagram.slice(0, 5).map((it) => ({
-        name: it.name ?? it.title ?? null,
-        website: it.website ?? null,
-        socialLinks: it.socialLinks ?? null,
-        socials: it.socials ?? null,
-        instagramFound: it.__instagramFound,
-        address: it.address ?? null,
-      })),
-    };
-  } catch (err) {
-    results.tugelbay2gis = { ok: false, actorId: "tugelbay~2gis-scraper", ...describeError(err) };
-  }
+  const tugelbay2gis =
+    tugelbayResult.status === "fulfilled"
+      ? summarizeItems(tugelbayResult.value, "tugelbay~2gis-scraper")
+      : { ok: false, actorId: "tugelbay~2gis-scraper", ...describeError(tugelbayResult.reason) };
 
-  try {
-    const items = await runApifyActor<Record<string, any>>("m_mamaev~2gis-places-scraper", {
-      searchQueries: [query],
-      location: city,
-      maxItems: 10,
-    });
-    const withInstagram: (Record<string, any> & { __instagramFound: string | null })[] = items.map((it) => ({
-      ...it,
-      __instagramFound: pickInstagramLink(it),
-    }));
-    results.mamaev2gis = {
-      ok: true,
-      actorId: "m_mamaev~2gis-places-scraper",
-      itemCount: items.length,
-      firstItemKeys: items[0] ? Object.keys(items[0]) : [],
-      itemsWithInstagram: withInstagram.filter((it) => it.__instagramFound).length,
-      sample: withInstagram.slice(0, 5).map((it) => ({
-        title: it.title ?? it.name ?? null,
-        website: it.website ?? null,
-        socials: it.socials ?? null,
-        instagramFound: it.__instagramFound,
-        address: it.address ?? null,
-      })),
-    };
-  } catch (err) {
-    results.mamaev2gis = { ok: false, actorId: "m_mamaev~2gis-places-scraper", ...describeError(err) };
-  }
+  const mamaev2gis =
+    mamaevResult.status === "fulfilled"
+      ? summarizeItems(mamaevResult.value, "m_mamaev~2gis-places-scraper")
+      : { ok: false, actorId: "m_mamaev~2gis-places-scraper", ...describeError(mamaevResult.reason) };
 
   return NextResponse.json({
     ok: true,
     testedAt: new Date().toISOString(),
     inputUsed: { query, city },
-    ...results,
+    tugelbay2gis,
+    mamaev2gis,
   });
 }

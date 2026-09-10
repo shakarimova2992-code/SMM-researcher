@@ -12,7 +12,10 @@
 // функции map* в liveEngine.ts, сам клиент трогать не нужно.
 
 const APIFY_BASE = "https://api.apify.com/v2/actors";
-const DEFAULT_TIMEOUT_MS = 60_000;
+// На serverless (Vercel) у самой функции есть жёсткий лимит времени выполнения —
+// лучше сами прервёмся пораньше и честно откатимся на мок, чем есть риск, что
+// платформа убьёт весь запрос по тайм-ауту и пользователь увидит голую ошибку.
+const DEFAULT_TIMEOUT_MS = 25_000;
 
 export class ApifyError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -33,13 +36,17 @@ export function isLiveDataEnabled(): boolean {
  * Запускает актор синхронно и возвращает элементы датасета.
  * actorId в формате "owner~actor-name" (так требует Apify REST API).
  */
-export async function runApifyActor<T = unknown>(actorId: string, input: Record<string, unknown>): Promise<T[]> {
+export async function runApifyActor<T = unknown>(
+  actorId: string,
+  input: Record<string, unknown>,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
+): Promise<T[]> {
   const token = getToken();
   if (!token) throw new ApifyError("APIFY_API_TOKEN не задан");
 
   const url = `${APIFY_BASE}/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(url, {
