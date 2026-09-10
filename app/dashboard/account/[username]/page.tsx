@@ -49,7 +49,7 @@ function Inner() {
 
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {(tab === "posts" ? data.posts : data.reels).map((item, i) => (
-              <ContentCard key={item.id} item={item} rank={i + 1} />
+              <ContentCard key={item.id} item={item} rank={i + 1} dataSource={data.dataSource} />
             ))}
           </div>
         </div>

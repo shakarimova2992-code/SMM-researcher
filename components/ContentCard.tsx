@@ -2,8 +2,20 @@ import { Badge, Card } from "@/components/ui";
 import { formatCompact, formatPercent, timeAgo } from "@/lib/format";
 import type { ContentItem } from "@/lib/mock/types";
 
-export default function ContentCard({ item, rank }: { item: ContentItem; rank: number }) {
+export default function ContentCard({
+  item,
+  rank,
+  dataSource,
+}: {
+  item: ContentItem;
+  rank: number;
+  dataSource?: "live" | "mock";
+}) {
   const hasSaves = Number.isFinite(item.saves);
+  // "hook" — это придуманная нами подсказка формата контента (для мок-примеров),
+  // а не часть настоящего поста. На реальных данных её нельзя показывать рядом
+  // с настоящей подписью/цифрами — выглядит так, будто это часть самого поста.
+  const showHook = dataSource !== "live";
 
   return (
     <Card className="flex flex-col overflow-hidden p-0">
@@ -30,7 +42,7 @@ export default function ContentCard({ item, rank }: { item: ContentItem; rank: n
       </div>
       <div className="flex flex-1 flex-col p-4">
         <p className="line-clamp-2 text-sm font-semibold text-white/90">{item.caption}</p>
-        <Badge tone="gold" className="mt-2 w-fit">{item.hook}</Badge>
+        {showHook && <Badge tone="gold" className="mt-2 w-fit">{item.hook}</Badge>}
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
           {item.type === "reel" && (
             <Metric label="Просмотры" value={formatCompact(item.views ?? 0)} />
